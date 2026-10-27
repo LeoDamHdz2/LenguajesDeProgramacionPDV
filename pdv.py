@@ -30,6 +30,11 @@ DEFAULT_PRODUCTS = (
     ("pre", "Pre-entreno", 500, 10),
     ("shaker", "Vaso Shaker", 150, 10),
 )
+IVA_RATE = 16
+
+
+def calculate_iva_cents(subtotal_cents):
+    return (subtotal_cents * IVA_RATE + 50) // 100
 
 
 def parse_money_to_cents(value):
@@ -126,7 +131,9 @@ class LocalStore:
                 }
             )
 
-        total_cents = total * 100
+        subtotal_cents = total * 100
+        iva_cents = calculate_iva_cents(subtotal_cents)
+        total_cents = subtotal_cents + iva_cents
         if paid_cents < total_cents:
             raise ValueError(
                 f"El pago ({format_money(paid_cents)}) no cubre el total "
@@ -140,7 +147,9 @@ class LocalStore:
             "id": self.next_sale_id,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "customer_name": customer_name,
-            "total": total,
+            "subtotal": total,
+            "iva_cents": iva_cents,
+            "total_cents": total_cents,
             "paid_cents": paid_cents,
             "change_cents": paid_cents - total_cents,
             "items": items,
@@ -172,13 +181,15 @@ def format_ticket(sale):
     for item in sale["items"]:
         lines.append(
             f"{item['product_name']} x{item['quantity']} "
-            f"@ {format_money(item['unit_price'] * 100)} "
-            f"= {format_money(item['subtotal'] * 100)}"
+            f"@ {format_money(item['unit_price'] * 100)} sin IVA "
+            f"= {format_money(item['subtotal'] * 100)} sin IVA"
         )
     lines.extend(
         (
             "-" * 38,
-            f"TOTAL: {format_money(sale['total'] * 100)}",
+            f"Subtotal sin IVA: {format_money(sale['subtotal'] * 100)}",
+            f"IVA ({IVA_RATE}%): {format_money(sale['iva_cents'])}",
+            f"TOTAL con IVA: {format_money(sale['total_cents'])}",
             f"Recibido: {format_money(sale['paid_cents'])}",
             f"Cambio: {format_money(sale['change_cents'])}",
             "=" * 38,
@@ -331,7 +342,7 @@ class PuntoDeVenta:
         )
         for column, title, width in (
             ("name", "Producto", 155),
-            ("price", "Precio", 85),
+            ("price", "Precio s/IVA", 95),
             ("quantity", "Existencias", 85),
         ):
             self.inventory_tree.heading(column, text=title)
@@ -382,8 +393,8 @@ class PuntoDeVenta:
         for column, title, width in (
             ("name", "Producto", 140),
             ("quantity", "Cant.", 50),
-            ("unit_price", "Precio", 75),
-            ("subtotal", "Importe", 85),
+            ("unit_price", "Precio s/IVA", 90),
+            ("subtotal", "Importe s/IVA", 100),
         ):
             self.cart_tree.heading(column, text=title)
             self.cart_tree.column(column, width=width, anchor="center")
@@ -410,14 +421,28 @@ class PuntoDeVenta:
         self.payment_amount = Entry(cart_frame)
         self.payment_amount.pack(fill=X, pady=(3, 4))
         self.payment_amount.bind("<KeyRelease>", self.update_change_hint)
+        self.subtotal_label = Label(
+            cart_frame,
+            text="Subtotal sin IVA: $0.00",
+            bg=self.panel,
+            fg=self.foreground,
+        )
+        self.subtotal_label.pack(anchor="e", pady=(7, 0))
+        self.iva_label = Label(
+            cart_frame,
+            text=f"IVA ({IVA_RATE}%): $0.00",
+            bg=self.panel,
+            fg=self.foreground,
+        )
+        self.iva_label.pack(anchor="e", pady=(2, 0))
         self.total_label = Label(
             cart_frame,
-            text="Total: $0.00",
+            text="Total con IVA: $0.00",
             font=("Helvetica", 16, "bold"),
             bg=self.panel,
             fg=self.accent,
         )
-        self.total_label.pack(anchor="e", pady=(7, 0))
+        self.total_label.pack(anchor="e", pady=(2, 0))
         self.change_label = Label(
             cart_frame,
             text="Cambio: —",
@@ -514,13 +539,13 @@ class PuntoDeVenta:
     def refresh_cart(self):
         for item in self.cart_tree.get_children():
             self.cart_tree.delete(item)
-        total = 0
+        subtotal_total = 0
         for product_key, quantity in self.cart.items():
             product = self.store.products.get(product_key)
             if product is None:
                 continue
-            subtotal = product["price"] * quantity
-            total += subtotal
+            line_subtotal = product["price"] * quantity
+            subtotal_total += line_subtotal
             self.cart_tree.insert(
                 "",
                 END,
@@ -529,10 +554,18 @@ class PuntoDeVenta:
                     product["name"],
                     quantity,
                     format_money(product["price"] * 100),
-                    format_money(subtotal * 100),
+                    format_money(line_subtotal * 100),
                 ),
             )
-        self.total_label.config(text=f"Total: {format_money(total * 100)}")
+        subtotal_cents = subtotal_total * 100
+        iva_cents = calculate_iva_cents(subtotal_cents)
+        self.subtotal_label.config(
+            text=f"Subtotal sin IVA: {format_money(subtotal_cents)}"
+        )
+        self.iva_label.config(text=f"IVA ({IVA_RATE}%): {format_money(iva_cents)}")
+        self.total_label.config(
+            text=f"Total con IVA: {format_money(subtotal_cents + iva_cents)}"
+        )
         self.update_change_hint()
 
     def update_change_hint(self, event=None):
@@ -546,7 +579,8 @@ class PuntoDeVenta:
             for key, quantity in self.cart.items()
             if key in self.store.products
         )
-        total_cents = total * 100
+        subtotal_cents = total * 100
+        total_cents = subtotal_cents + calculate_iva_cents(subtotal_cents)
         if paid_cents < total_cents:
             self.change_label.config(text="Cambio: pago insuficiente")
         else:
@@ -596,7 +630,8 @@ class PuntoDeVenta:
         self.refresh_cart()
         if messagebox.askyesno(
             "Venta registrada",
-            f"Venta #{sale['id']} por {format_money(sale['total'] * 100)}.\n"
+            f"Venta #{sale['id']} por {format_money(sale['total_cents'])} "
+            "(con IVA).\n"
             f"Pagó: {format_money(sale['paid_cents'])}  |  "
             f"Cambio: {format_money(sale['change_cents'])}\n"
             "¿Quieres guardar el ticket como archivo TXT?",
@@ -640,7 +675,7 @@ class PuntoDeVenta:
             ("id", "Venta", 70),
             ("created_at", "Fecha", 170),
             ("customer", "Cliente", 250),
-            ("total", "Total", 120),
+            ("total", "Total c/IVA", 120),
         ):
             tree.heading(column, text=title)
             tree.column(column, width=width, anchor="center")
@@ -654,7 +689,7 @@ class PuntoDeVenta:
                     sale["id"],
                     sale["created_at"],
                     sale["customer_name"],
-                    format_money(sale["total"] * 100),
+                    format_money(sale["total_cents"]),
                 ),
             )
 
