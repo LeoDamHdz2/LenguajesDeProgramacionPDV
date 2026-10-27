@@ -33,8 +33,11 @@ DEFAULT_PRODUCTS = (
 IVA_RATE = 16
 
 
-def calculate_iva_cents(subtotal_cents):
-    return (subtotal_cents * IVA_RATE + 50) // 100
+def split_iva_included_cents(total_cents):
+    subtotal_cents = (total_cents * 100 + (100 + IVA_RATE) // 2) // (
+        100 + IVA_RATE
+    )
+    return subtotal_cents, total_cents - subtotal_cents
 
 
 def parse_money_to_cents(value):
@@ -131,9 +134,8 @@ class LocalStore:
                 }
             )
 
-        subtotal_cents = total * 100
-        iva_cents = calculate_iva_cents(subtotal_cents)
-        total_cents = subtotal_cents + iva_cents
+        total_cents = total * 100
+        subtotal_cents, iva_cents = split_iva_included_cents(total_cents)
         if paid_cents < total_cents:
             raise ValueError(
                 f"El pago ({format_money(paid_cents)}) no cubre el total "
@@ -147,7 +149,7 @@ class LocalStore:
             "id": self.next_sale_id,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "customer_name": customer_name,
-            "subtotal": total,
+            "subtotal_cents": subtotal_cents,
             "iva_cents": iva_cents,
             "total_cents": total_cents,
             "paid_cents": paid_cents,
@@ -181,13 +183,13 @@ def format_ticket(sale):
     for item in sale["items"]:
         lines.append(
             f"{item['product_name']} x{item['quantity']} "
-            f"@ {format_money(item['unit_price'] * 100)} sin IVA "
-            f"= {format_money(item['subtotal'] * 100)} sin IVA"
+            f"@ {format_money(item['unit_price'] * 100)} con IVA "
+            f"= {format_money(item['subtotal'] * 100)} con IVA"
         )
     lines.extend(
         (
             "-" * 38,
-            f"Subtotal sin IVA: {format_money(sale['subtotal'] * 100)}",
+            f"Subtotal sin IVA: {format_money(sale['subtotal_cents'])}",
             f"IVA ({IVA_RATE}%): {format_money(sale['iva_cents'])}",
             f"TOTAL con IVA: {format_money(sale['total_cents'])}",
             f"Recibido: {format_money(sale['paid_cents'])}",
@@ -342,7 +344,7 @@ class PuntoDeVenta:
         )
         for column, title, width in (
             ("name", "Producto", 155),
-            ("price", "Precio s/IVA", 95),
+            ("price", "Precio c/IVA", 95),
             ("quantity", "Existencias", 85),
         ):
             self.inventory_tree.heading(column, text=title)
@@ -393,8 +395,8 @@ class PuntoDeVenta:
         for column, title, width in (
             ("name", "Producto", 140),
             ("quantity", "Cant.", 50),
-            ("unit_price", "Precio s/IVA", 90),
-            ("subtotal", "Importe s/IVA", 100),
+            ("unit_price", "Precio c/IVA", 90),
+            ("subtotal", "Importe c/IVA", 100),
         ):
             self.cart_tree.heading(column, text=title)
             self.cart_tree.column(column, width=width, anchor="center")
@@ -557,14 +559,14 @@ class PuntoDeVenta:
                     format_money(line_subtotal * 100),
                 ),
             )
-        subtotal_cents = subtotal_total * 100
-        iva_cents = calculate_iva_cents(subtotal_cents)
+        total_cents = subtotal_total * 100
+        subtotal_cents, iva_cents = split_iva_included_cents(total_cents)
         self.subtotal_label.config(
             text=f"Subtotal sin IVA: {format_money(subtotal_cents)}"
         )
         self.iva_label.config(text=f"IVA ({IVA_RATE}%): {format_money(iva_cents)}")
         self.total_label.config(
-            text=f"Total con IVA: {format_money(subtotal_cents + iva_cents)}"
+            text=f"Total con IVA: {format_money(total_cents)}"
         )
         self.update_change_hint()
 
@@ -579,8 +581,7 @@ class PuntoDeVenta:
             for key, quantity in self.cart.items()
             if key in self.store.products
         )
-        subtotal_cents = total * 100
-        total_cents = subtotal_cents + calculate_iva_cents(subtotal_cents)
+        total_cents = total * 100
         if paid_cents < total_cents:
             self.change_label.config(text="Cambio: pago insuficiente")
         else:
