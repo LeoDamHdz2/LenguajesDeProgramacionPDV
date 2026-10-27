@@ -1,0 +1,29 @@
+from tkinter import *
+
+#  Configuración de la Ventana Raíz
+raiz = Tk()
+raiz.title("Ventana de pruebas - Frames")
+raiz.config(bg="blue")
+
+# Propiedades de borde y cursor para la Raíz
+raiz.config(bd=45)
+raiz.config(relief="sunken")
+raiz.config(cursor="hand2")
+
+#  Creación del Frame
+mi_frame = Frame(raiz)
+
+# Empaquetado del Frame (se puede configurar rellenado, anclaje, etc.)
+mi_frame.pack()
+
+# Configuración del Frame
+mi_frame.config(bg="red")             
+mi_frame.config(width=650, height=350) 
+
+# Bordes y cursor para el Frame
+mi_frame.config(bd=35)                 
+mi_frame.config(relief="groove")       
+mi_frame.config(cursor="pirate")      
+
+# Bucle principal de ejecución
+raiz.mainloop()
